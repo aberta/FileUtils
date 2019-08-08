@@ -53,6 +53,23 @@ for( int i = 0; i < dataContext.getDataCount(); i++ ) {
 
 This method is the one that actually performs the move (both `moveFile` and `moveDirectoryFile` call this method) and gives you more control (at the expensive of being more complicated to use from a Groovy script in Boomi).  See the [`Java API documentation`](https://docs.oracle.com/javase/8/docs/api/index.html?java/io/File.html) for more information on how to create a `Path` object.
 
+## Want Logging?
+
+All the methods can take an optional `Logger` object as their first parameter.  For example, in Boomi use `com.boomi.execution.ExecutionUtil.getBaseLogger()`, as in the following example:
+
+```Groovy
+import static com.boomi.execution.ExecutionUtil.*
+import static aberta.files.FileUtils.*
+
+...
+
+if (shouldLog) {
+    moveDirectoryFile(getBaseLogger(), // use the Boomi process logger
+                      dir, filename, archive_dir) // will log movements
+} else {
+    moveDirectoryFile(dir, filename, archive_dir) // will not log
+}
+```
 
 ## Installation
 

@@ -37,6 +37,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,8 +52,24 @@ public class FileUtils {
     /**
      * Moves a file, residing in one directory to a destination file or
      * directory. Refer to the documentation for
-     * {@link #move(Path,Path,boolean,boolean)}.
+     * {@link #moveFile(Logger, String, Object...)}.
      *
+     * @param sourceFilePath the absolute or relative path to the file to move
+     * @param toPathSegments a destination directory and/or file name to move
+     * to.
+     * @return the path of the moved file
+     */
+    public static String moveFile(String sourceFilePath,
+                                  Object... toPathSegments) {
+        return moveFile(null, sourceFilePath, toPathSegments);
+    }
+
+    /**
+     * Moves a file, residing in one directory to a destination file or
+     * directory. Refer to the documentation for
+     * {@link #move(Logger, Path,Path,boolean,boolean)}.
+     *
+     * @param logger optional Logger
      * @param sourceFilePath the absolute or relative path to the file to move
      * @param toPathSegments a destination directory and/or file name to move
      * to. If the path does not exist and the final segment in the path does not
@@ -62,7 +80,16 @@ public class FileUtils {
      * segment is not a String then toString() is applied to the segment.
      * @return the path of the moved file
      */
-    public static String moveFile(String sourceFilePath, Object... toPathSegments) {
+    public static String moveFile(Logger logger, String sourceFilePath,
+                                  Object... toPathSegments) {
+        if (logger != null) {
+            logger.log(Level.INFO,
+                       "moveFile(" + sourceFilePath + ", " + toPathSegments + ")");
+        }
+
+        if (sourceFilePath == null || sourceFilePath.trim().isEmpty()) {
+            throw new RuntimeException("no source path specified");
+        }
 
         if (toPathSegments.length == 0) {
             throw new RuntimeException("no destination path specified");
@@ -79,7 +106,7 @@ public class FileUtils {
 
         FileSystem fs = FileSystems.getDefault();
         Path source = null;
-        Path destination;
+        Path destination = null;
 
         try {
             source = fs.getPath(sourceFilePath);
@@ -98,26 +125,54 @@ public class FileUtils {
             if (!isDir) {
                 isDir = last.endsWith(File.separator);
             }
-            return move(source, destination, isDir, false).toString();
+            return move(logger, source, destination, isDir, false).toString();
 
         } catch (InvalidPathException ex) {
             throw new RuntimeException(
-                    "Invalid " + ((source == null) ? "source" : "destination") + " path");
+                    (source == null)
+                    ? "Invalid source path '" + sourceFilePath + "'"
+                    : "Invalid destination path '" + destination + "'",
+                    ex);
         }
     }
 
     /**
      * Moves a file, residing in one directory to a destination file or
-     * directory. Refer to the documentation for {@link #moveFile(String,Object...)}.
+     * directory. Refer to the documentation for
+     * {@link #moveFile(Logger,String,Object...)}.
      *
      * @param sourceDir the source directory
      * @param sourceFile the source file name
      * @param destinationPath the destination file or directory
      * @return the path of the moved file
      */
-    public static String moveDirectoryFile(String sourceDir, String sourceFile,
-                              Object... destinationPath) {
-        return moveFile(sourceDir + File.separator + sourceFile, destinationPath);
+    public static String moveDirectoryFile(String sourceDir,
+                                           String sourceFile,
+                                           Object... destinationPath) {
+        return moveFile(null, sourceDir + File.separator + sourceFile,
+                        destinationPath);
+    }
+
+    /**
+     * Moves a file, residing in one directory to a destination file or
+     * directory. Refer to the documentation for
+     * {@link #moveFile(Logger,String,Object...)}.
+     *
+     * @param logger optional Logger
+     * @param sourceDir the source directory
+     * @param sourceFile the source file name
+     * @param destinationPath the destination file or directory
+     * @return the path of the moved file
+     */
+    public static String moveDirectoryFile(Logger logger, String sourceDir,
+                                           String sourceFile,
+                                           Object... destinationPath) {
+        if (logger != null) {
+            logger.log(Level.INFO,
+                       "moveDirectoryFile(" + sourceDir + ", " + sourceFile + ", " + destinationPath + ")");
+        }
+        return moveFile(logger, sourceDir + File.separator + sourceFile,
+                        destinationPath);
     }
 
     /**
@@ -134,11 +189,17 @@ public class FileUtils {
      * @param destinationIsDirectory if true the destination is treated as
      * directory
      * @param allowReplaceExisting if true an existing file can be replaced
+     * @param logger optional Logger
      * @return the path of the moved file
      */
-    public static Path move(Path source, Path destination,
+    public static Path move(Logger logger, Path source, Path destination,
                             boolean destinationIsDirectory,
-                            boolean allowReplaceExisting) {
+                            boolean allowReplaceExisting
+    ) {
+        if (logger != null) {
+            logger.log(Level.INFO,
+                       "move(" + source + ", " + destination + ", destinationIsDir:" + destinationIsDirectory + ", allowReplaceExisting:" + allowReplaceExisting + ")");
+        }
 
         if (source == null) {
             throw new RuntimeException("no source path specified");
@@ -161,6 +222,11 @@ public class FileUtils {
         try {
             if (dirToCheck != null && !Files.exists(dirToCheck)) {
                 try {
+                    if (logger != null) {
+                        logger.log(Level.INFO,
+                                   "creating directory " + dirToCheck);
+                    }
+
                     Files.createDirectories(dirToCheck);
                 } catch (FileAlreadyExistsException ex) {
                     throw new RuntimeException(
@@ -174,32 +240,48 @@ public class FileUtils {
 
             String sourceFile = source.getFileName().toString();
 
-            Path toPath = createPath(source, destination, allowReplaceExisting);
+            Path toPath = createPath(logger, source, destination,
+                                     allowReplaceExisting);
+            Path resultingPath = null;
 
             try {
                 if (allowReplaceExisting) {
-                    return Files.move(source, toPath,
-                                      StandardCopyOption.ATOMIC_MOVE,
-                                      StandardCopyOption.REPLACE_EXISTING);
+                    resultingPath = Files.move(source, toPath,
+                                               StandardCopyOption.ATOMIC_MOVE,
+                                               StandardCopyOption.REPLACE_EXISTING);
                 } else {
-                    return Files.move(source, toPath,
-                                      StandardCopyOption.ATOMIC_MOVE);
+                    resultingPath = Files.move(source, toPath,
+                                               StandardCopyOption.ATOMIC_MOVE);
                 }
+
             } catch (AtomicMoveNotSupportedException ex) {
+
+                if (logger != null) {
+                    logger.log(Level.WARNING,
+                               "atomic move not supported, trying without option ATOMIC_MOVE");
+                }
+
                 if (allowReplaceExisting) {
-                    return Files.move(source, toPath,
-                                      StandardCopyOption.REPLACE_EXISTING);
+                    resultingPath = Files.move(source, toPath,
+                                               StandardCopyOption.REPLACE_EXISTING);
                 } else {
-                    return Files.move(source, toPath);
+                    resultingPath = Files.move(source, toPath);
                 }
             }
+
+            if (logger != null) {
+                logger.log(Level.INFO,
+                           "file  " + source + " moved to " + resultingPath);
+            }
+            return resultingPath;
+            
         } catch (IOException ex) {
             throw new RuntimeException(
                     "Cannot move file " + source + " to " + destination, ex);
         }
     }
 
-    private static Path createPath(Path from, Path to,
+    private static Path createPath(Logger logger, Path from, Path to,
                                    boolean allowReplaceExisting) {
 
         String fileName = (Files.isDirectory(to) ? from : to)
@@ -229,6 +311,12 @@ public class FileUtils {
         }
 
         if (Files.exists(newPath)) {
+            if (logger != null) {
+                logger.
+                        log(Level.WARNING,
+                            "file  " + newPath + " already exists");
+            }
+
             int i = 1;
 
             while (Files.exists(newPath)) {
@@ -267,7 +355,8 @@ public class FileUtils {
      */
     public static void main(String[] args) {
         if (args.length < 3) {
-            System.err.println("Usage: move <source file> <destination path>,...");
+            System.err.println(
+                    "Usage: move <source file> <destination path>,...");
             System.exit(1);
         }
 
@@ -275,6 +364,6 @@ public class FileUtils {
                 .asList(args)
                 .subList(2, args.length).toArray();
 
-        moveFile(args[1], destination);
+        moveFile(Logger.getGlobal(), args[1], destination);
     }
 }
