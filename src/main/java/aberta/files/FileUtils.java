@@ -23,8 +23,10 @@ SOFTWARE.
  */
 package aberta.files;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
@@ -48,6 +50,119 @@ import java.util.regex.Pattern;
  * @author chris
  */
 public class FileUtils {
+
+    public static class FileWriter {
+
+        private final Path toPath;
+        private InputStream data = null;
+        private Logger logger = null;
+        private boolean replaceExisting = false;
+        private boolean createDirs = true;
+
+        private FileWriter(Path toPath) {
+            if (toPath == null) {
+                throw new RuntimeException("no path specified");
+            }
+            this.toPath = toPath;
+        }
+        
+        public FileWriter data(InputStream in) {
+            data = in;
+            return this;
+        }
+        
+        public FileWriter data(String string) {
+            return data(string.getBytes());
+        }
+        
+        public FileWriter data(byte []bytes) {
+            return data(new ByteArrayInputStream(bytes));
+        }
+
+        public FileWriter replacingExisting() {
+            return replacingExisting(true);
+        }
+
+        public FileWriter replacingExisting(boolean replaceExisting) {
+            this.replaceExisting = replaceExisting;
+            return this;
+        }
+
+        public FileWriter creatingAnyRequiredDirectories() {
+            return creatingAnyRequiredDirectories(true);
+        }
+
+        public FileWriter creatingAnyRequiredDirectories(boolean createDirs) {
+            this.createDirs = createDirs;
+            return this;
+        }
+
+        public FileWriter loggingTo(Logger logger) {
+            this.logger = logger;
+            return this;
+        }
+
+        public Path execute() {
+
+            if (data == null) {
+                throw new RuntimeException("no data to write");
+            }
+            if (toPath == null) {
+                throw new RuntimeException("no path to write to");
+            }
+
+            try {
+                if (logger != null) {
+                    logger.info(
+                            "writing data to "
+                            + toPath
+                            + (replaceExisting ? ", replacing any existing file" : ""));
+                }
+                
+                Path dir = toPath.getParent();
+                if (!Files.exists(dir)) {
+                    if (createDirs) {
+                        Files.createDirectories(dir);
+                    } else {
+                        throw new RuntimeException("directory " + dir + " does not exist");
+                    }
+                }
+                
+                long bytes = 0;
+                if (replaceExisting) {
+                    bytes = Files.copy(data, toPath,
+                                       StandardCopyOption.REPLACE_EXISTING);
+                } else {
+                    try {
+                        bytes = Files.copy(data, toPath);
+                    } catch (FileAlreadyExistsException ex) {
+                        if (logger != null) {
+                            logger.warning("file " + toPath + " already exists");
+                        }
+                        throw ex;
+                    }
+                }
+                if (logger != null) {
+                    logger.info(bytes + " bytes written to " + toPath);
+                }
+
+                return toPath;
+
+            } catch (IOException ex) {
+                throw new RuntimeException("Failed to write to " + toPath, ex);
+            }
+        }
+    }
+
+    public static FileWriter writeToPath(Path filepath) {
+        return new FileWriter(filepath);
+    }
+
+    public static FileWriter writeToFile(Object... pathSegments) {
+        return writeToPath(
+                getPathFromSegments(objectsToStringList(pathSegments),
+                                    FileSystems.getDefault()));
+    }
 
     /**
      * Moves a file, residing in one directory to a destination file or
@@ -95,14 +210,7 @@ public class FileUtils {
             throw new RuntimeException("no destination path specified");
         }
 
-        List<String> segments = new ArrayList<>();
-        for (Object segment : toPathSegments) {
-            if (segment == null) {
-                throw new IllegalArgumentException(
-                        "destination path contains a null");
-            }
-            segments.add(segment.toString());
-        }
+        List<String> segments = objectsToStringList(toPathSegments);
 
         FileSystem fs = FileSystems.getDefault();
         Path source = null;
@@ -111,19 +219,12 @@ public class FileUtils {
         try {
             source = fs.getPath(sourceFilePath);
 
-            String first = segments.get(0);
-            String last = segments.get(segments.size() - 1);
-
-            if (segments.size() > 1) {
-                List<String> subdirs = segments.subList(1, segments.size());
-                destination = fs.getPath(first, subdirs.toArray(new String[0]));
-            } else {
-                destination = fs.getPath(first);
-            }
+            destination = getPathFromSegments(segments, fs);
 
             boolean isDir = isOrlooksLikeADirectory(destination);
             if (!isDir) {
-                isDir = last.endsWith(File.separator);
+                isDir = segments.get(segments.size() - 1)
+                                .endsWith(File.separator);
             }
             return move(logger, source, destination, isDir, false).toString();
 
@@ -274,10 +375,35 @@ public class FileUtils {
                            "file  " + source + " moved to " + resultingPath);
             }
             return resultingPath;
-            
+
         } catch (IOException ex) {
             throw new RuntimeException(
                     "Cannot move file " + source + " to " + destination, ex);
+        }
+    }
+
+    private static List<String> objectsToStringList(Object... objects) {
+        List<String> list = new ArrayList<>();
+        for (Object obj : objects) {
+            if (obj == null) {
+                throw new IllegalArgumentException(
+                        "path cannot contain null");
+            }
+            list.add(obj.toString());
+        }
+        return list;
+    }
+
+    private static Path getPathFromSegments(List<String> segments,
+                                            FileSystem fs) {
+        String first = segments.get(0);
+        String last = segments.get(segments.size() - 1);
+
+        if (segments.size() > 1) {
+            List<String> subdirs = segments.subList(1, segments.size());
+            return fs.getPath(first, subdirs.toArray(new String[0]));
+        } else {
+            return fs.getPath(first);
         }
     }
 
